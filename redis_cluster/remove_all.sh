@@ -1,3 +1,5 @@
+#!/bin/bash
+
 SCRIPT_FILE_FOLDER=$(cd "$(dirname "${BASH_SOURCE-$0}")"; pwd)
 
 docker stop redis_1 redis_2 redis_3 redis_4 redis_5 redis_6
