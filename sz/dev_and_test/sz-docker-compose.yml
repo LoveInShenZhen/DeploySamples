@@ -1,0 +1,112 @@
+version: "3.7"
+services:
+  # 一般的业务系统, 都会依赖于一个数据库服务, 所以就默认提供
+  sz_mysql:
+    image: mysql:5.7
+    environment: 
+      # 创建MySql实例的时候, 设置的 root 用户密码, 根据需要自己修改
+      MYSQL_ROOT_PASSWORD: 1qaz2wsx
+    restart: always
+    volumes: 
+      - type: volume
+        source: sz-mysql-data
+        target: /var/lib/mysql
+        volume:
+          nocopy: true
+    networks: 
+      - sz-dev-test
+    ports: 
+      # 暴露 MySql 的端口, 便于开发调试, 用户数据库管理工具管理数据
+      - "6033:3306"
+  
+  # 内置一个MySql的web管理工具, 通过8888端口访问, 便于开发调试, 可以根据实际情况, 修改端口映射, 勿与其他端口冲突
+  sz_mysql_adminer:
+    image: adminer
+    restart: always
+    networks: 
+      - sz-dev-test
+    ports:
+      - 8888:8080
+
+  # 缓存, token 之类的会用到, 所以也就默认提供
+  sz_redis:
+    image: redis:alpine
+    restart: always
+    networks: 
+      - sz-dev-test
+  
+  # 如果应用服务拆成多个部分, 通过 Vert.x 的 EventBus 通信, 则应用需要部署成 Vert.x 的集群模式, Vert.x集群依赖 zookeeper 服务
+  # 注: 如果使用了SZ框架提供的基于MySql的PlanTask服务, 则需要部署成 Vert.x 集群模式
+  sz_zookeeper:
+    image: zookeeper:latest
+    restart: always
+    networks: 
+      - sz-dev-test
+  
+  # 提供给前端同学部署html静态内容的
+  sz_nginx:
+    image: nginx:alpine
+    restart: always
+    volumes: 
+      - type: volume
+        source: sz-nginx-conf
+        target: /etc/nginx/conf.d/
+        volume:
+          nocopy: true
+      - type: volume
+        source: sz-nginx-html
+        target: /web_html/
+        volume:
+          nocopy: true
+    depends_on:
+      - sz_app_server
+    networks: 
+      - sz-dev-test
+    ports: 
+      # 按照需要, 添加需要暴露出去的端口
+      - "8080:80"
+      - "8443:443"
+
+  # 应用服务器, 所有的应用都作为容器内 supervisor 管理的服务
+  # 参考: https://github.com/LoveInShenZhen/MyDockerfiles/blob/master/java/ssh_supervisord_alpine/setup_alpine.sh
+  sz_app_server:
+    image: dragonsunmoon/jdk8_ssh_supervisord:latest
+    restart: always
+    # 应用服务, nginx 的conf和html 都是通过 sz_app_server 的ssh服务进行部署更新的, 所以把需要的数据卷都挂载上
+    volumes: 
+      - type: volume
+        source: sz-apps-data
+        target: /apps_data/
+      - type: volume
+        source: sz-apps-config
+        target: /apps_config/
+      - type: volume
+        source: sz-nginx-html
+        target: /web_html/     
+      - type: volume
+        source: sz-nginx-conf
+        target: /etc/nginx/conf.d/
+    networks: 
+      - sz-dev-test
+    ports: 
+      # 按照需要, 添加需要暴露出去的端口, 为了方便开发调试, 默认暴露 9000 和 5005 (remote debug)
+      - "10022:22"
+      - "9000:9000"
+      - "5005:5005"
+    depends_on:
+      - sz_mysql
+      - sz_redis
+      - sz_zookeeper
+
+# 同一个网络内的容器, 彼此之间可以通过 service name进行访问, 因为 docker compose 会自动将server的名称在网络配置里, 添加一个别名
+# 这样 service 之间可以通过名称直接访问 (简单说, 通过server name可以ping通)
+networks:
+  sz-dev-test:
+
+# 采用数据卷的方式, 是因为, 这个可以同时在 mac, linux 和 windows 下都工作
+volumes:
+  sz-apps-data:
+  sz-apps-config:
+  sz-mysql-data:
+  sz-nginx-html:
+  sz-nginx-conf:

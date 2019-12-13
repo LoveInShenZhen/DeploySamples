@@ -67,10 +67,10 @@ sentinel client-reconfig-script mymaster /var/redis/reconfig.sh
 ```
 
 #### 实验说明
-* 3 个Redis Server节点, 1 主 2 从
+* 4 个Redis Server节点, 1 主 3 从
 * 3 个Redis Sentinel节点
 * 每个节点一个单独的docker实例,各自独立的配置文件
-* 6 个节点部署在同一个 **docker network** 下
+* 7 个节点部署在同一个 **docker network** 下
 * 每个节点都把外面对应的实例的目录(目录名与docker实例的名称相同)映射到内部的 **/custom** 目录, 配置和日志文件都在此目录下
-* 创建初期, 配置 **redis_1** 为主节点, 其余2个为从节点
+* 创建初期, 配置 **redis_1** 为主节点, 其余3个为从节点
 * Redis 主节点 设置名称为 **redis_master**
