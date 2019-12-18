@@ -107,7 +107,7 @@ def deploy_conf(args: argparse.Namespace):
 
     ssh_cmd(f'/usr/local/bin/sz_setup.py stop --app-name {app_name}')
     ssh_cmd(f'/usr/local/bin/sz_setup.py start --app-name {app_name}')
-    ssh_cmd(f'supervisorctl status {app_name}')
+    ssh_cmd(f'/usr/local/bin/sz_setup.py status --app-name {app_name}')
     info(f"应用[{app_name}]的运行环境配置文件在目标机器上部署完毕")
 
 

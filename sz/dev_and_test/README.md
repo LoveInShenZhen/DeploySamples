@@ -51,3 +51,10 @@ sudo systemctl restart docker
 * 我们采用 Docker Compose file 来编排我们的单机开发测试环境
 * 参考 [官方文档-Install Docker Compose](https://docs.docker.com/compose/install/)
 
+#### 获取测试环境的 Docker Compose file
+
+##### sz 后端应用的通常组成
+sz 后端应用, 按照提供的服务类型, 由以下几个部分组成
+* MySql (*注: 测试环境, MySql 由一个mysql容器提供服务, 正式站点, 通常使用云服务商提供的云数据库服务*)
+* Redis (*注: 仅作为缓存来使用,可靠性没有要求的那么高, 能够快速恢复就行, 所以通常redis使用容器方式提供服务, 正式站点,也是可以选择使用云服务商提供的redis云服务*)
+

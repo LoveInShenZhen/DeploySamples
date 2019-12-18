@@ -15,6 +15,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from typing import List
 
 supervisor_conf_dir = '/etc/supervisor/conf.d/'
@@ -218,17 +219,22 @@ def setup_app_supervisor(app_name: str):
 
 def start_app(app_name: str):
     if not app_supervisor_exists(app_name):
-        raise Exception(f'应用服务[{app_name}]未安装')
+        info(f'应用服务[{app_name}]未安装')
+        return
     shell(f'supervisorctl start {app_name}')
 
 
 def stop_app(app_name: str):
     if not app_supervisor_exists(app_name):
+        info(f'应用服务[{app_name}]未安装')
         return
     shell(f'supervisorctl stop {app_name}')
 
 
 def status_of(app_name):
+    if not app_supervisor_exists(app_name):
+        info(f'应用服务[{app_name}]未安装')
+        return
     shell(f'supervisorctl status {app_name}')
 
 
@@ -250,6 +256,11 @@ def cmd_install_zip(args: argparse.Namespace):
     if not os.path.exists(zip_path):
         raise Exception(f'请先rsync应用包:[{app_name}.zip]到目录: {apps_zip_dir}')
 
+    if app_supervisor_exists(app_name):
+        is_upgrade = True
+    else:
+        is_upgrade = False
+
     shell(f'mkdir -p {app_dir}')
     shell(f'unzip {zip_path} -d {apps_zip_dir}')
     rmdir(app_dir, excludes = ['logs'])
@@ -266,6 +277,8 @@ def cmd_install_zip(args: argparse.Namespace):
     # 生成 supervisord conf
     setup_app_supervisor(app_name)
     supervisord_update()
+    if not is_upgrade:
+        time.sleep(5)
 
 
 def cmd_install(args: argparse.Namespace):
@@ -274,6 +287,11 @@ def cmd_install(args: argparse.Namespace):
     # 判断 app 是否已经被 rsync 到对应的目录
     if not os.path.exists(app_dir):
         raise Exception('请先rsync应用到对应目录')
+
+    if app_supervisor_exists(app_name):
+        is_upgrade = True
+    else:
+        is_upgrade = False
 
     # 判断 app 对应的conf/application.conf 文件是否存在, 如果不存在, 则复制当前的一套配置文件
     conf_dir = app_conf_dir(app_name)
@@ -285,6 +303,8 @@ def cmd_install(args: argparse.Namespace):
     # 生成 supervisord conf
     setup_app_supervisor(app_name)
     supervisord_update()
+    if not is_upgrade:
+        time.sleep(5)
 
 
 def cmd_uninstall(args: argparse.Namespace):
@@ -308,6 +328,10 @@ def cmd_start(args: argparse.Namespace):
 
 def cmd_stop(args: argparse.Namespace):
     stop_app(app_name = args.app_name)
+
+
+def cmd_status(args: argparse.Namespace):
+    status_of(args.app_name)
 
 
 def main():
@@ -340,6 +364,10 @@ def main():
     stop_parser.add_argument('--app-name', help = '应用服务名称,必填参数',
                              metavar = 'api_server', required = True)
 
+    status_parser = subcmds.add_parser('status', help = '在服务器上查看 应用服务 的状态')
+    status_parser.add_argument('--app-name', help = '应用服务名称,必填参数',
+                               metavar = 'api_server', required = True)
+
     args = top_parser.parse_args()
 
     if not args.cmd_name:
@@ -352,7 +380,8 @@ def main():
         'installzip': cmd_install_zip,
         'uninstall': cmd_uninstall,
         'start': cmd_start,
-        'stop': cmd_stop
+        'stop': cmd_stop,
+        'status': cmd_status
     }
 
     action = cmd_actions[args.cmd_name]
