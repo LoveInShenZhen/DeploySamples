@@ -11,8 +11,6 @@ services:
       - type: volume
         source: sz-mysql-data
         target: /var/lib/mysql
-        volume:
-          nocopy: true
     networks: 
       - sz-dev-test
     ports: 
@@ -26,7 +24,7 @@ services:
     networks: 
       - sz-dev-test
     ports:
-      - 8888:8080
+      - 8666:8080
 
   # 缓存, token 之类的会用到, 所以也就默认提供
   sz_redis:
@@ -50,14 +48,10 @@ services:
     volumes: 
       - type: volume
         source: sz-nginx-conf
-        target: /etc/nginx/conf.d/
-        volume:
-          nocopy: true
+        target: /etc/nginx/
       - type: volume
         source: sz-nginx-html
         target: /web_html/
-        volume:
-          nocopy: true
     depends_on:
       - sz_app_server
     networks: 
@@ -76,16 +70,13 @@ services:
     volumes: 
       - type: volume
         source: sz-apps-data
-        target: /apps_data/
-      - type: volume
-        source: sz-apps-config
-        target: /apps_config/
+        target: /sz/deploy/
       - type: volume
         source: sz-nginx-html
         target: /web_html/     
       - type: volume
         source: sz-nginx-conf
-        target: /etc/nginx/conf.d/
+        target: /etc/nginx/
     networks: 
       - sz-dev-test
     ports: 
@@ -106,7 +97,6 @@ networks:
 # 采用数据卷的方式, 是因为, 这个可以同时在 mac, linux 和 windows 下都工作
 volumes:
   sz-apps-data:
-  sz-apps-config:
   sz-mysql-data:
   sz-nginx-html:
   sz-nginx-conf:

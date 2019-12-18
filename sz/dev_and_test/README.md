@@ -3,9 +3,10 @@
 
 ## 开发阶段的部署需求
 * 因为是前后端分离的开发模式, 所以部署一套专门给前端工程师进行联调开发测试使用
+* 开发的项目系统虽然是分布式的, 但是需要在开发工程师的单机上完成部署, 不需要集群.
 * 要能够快速更新, 避免每次重新构建 docker image 的流程, 节省开发测试时间
 * 要有脚本, 打包/更新部署, 一个脚本命令搞定
-* 不同的应用服务独立更新
+* 不同的应用服务可以各自独立更新
 * 运行在容器中的 MySql, Redis 可以被容器外直接访问
 * 运行应用服务器的容器, 提供 ssh 端口, 便于开发人员登录进去查看log, 进行调试
 * 采用 Docker Compose 的方式进行部署
@@ -47,6 +48,6 @@ sudo systemctl restart docker
 ```
 
 #### 安装 Docker Compose
-* 我们采用 Docker Compose file 来编排我们的开发测试环境
+* 我们采用 Docker Compose file 来编排我们的单机开发测试环境
 * 参考 [官方文档-Install Docker Compose](https://docs.docker.com/compose/install/)
 
