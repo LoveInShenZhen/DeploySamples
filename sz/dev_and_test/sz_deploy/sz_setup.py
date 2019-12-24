@@ -210,7 +210,7 @@ def setup_app_supervisor(app_name: str):
     lines.append(f'command={app_script_path(app_name)}')
     lines.append(f'environment=JAVA_OPTS="-Dsz.properties.url=file://{app_sz_props_url(app_name)}"')
     lines.append('autostart=true')
-    lines.append('autorestart=true')
+    lines.append('autorestart=false')
     lines.append('startsecs=5')
 
     with open(conf_path, 'w') as f:
