@@ -101,4 +101,3 @@ volumes:
   sz-apps-data:
   sz-mysql-data:
   sz-nginx-html:
-  sz-nginx-conf:
