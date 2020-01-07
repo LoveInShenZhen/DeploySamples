@@ -91,13 +91,14 @@ services:
       - sz_redis
       - sz_zookeeper
 
-# 同一个网络内的容器, 彼此之间可以通过 service name进行访问, 因为 docker compose 会自动将server的名称在网络配置里, 添加一个别名
-# 这样 service 之间可以通过名称直接访问 (简单说, 通过server name可以ping通)
+# 同一个网络内的容器, 彼此之间可以通过 service name 进行访问, 因为 docker compose 会自动将 service 的名称在网络配置里, 添加一个别名
+# 这样 service 之间可以通过名称直接访问 (简单说, 通过 service name 可以 ping 通)
 networks:
   sz-dev-test:
 
-# 采用数据卷的方式, 是因为, 这个可以同时在 mac, linux 和 windows 下都工作
+# 采用数据卷的方式, 是因为, 这种方式可以同时在 mac, linux 和 windows 下都工作
 volumes:
   sz-apps-data:
   sz-mysql-data:
   sz-nginx-html:
+  sz-nginx-conf:
