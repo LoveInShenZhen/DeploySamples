@@ -178,8 +178,6 @@ def create_config_url_prop(app_name: str) -> str:
     lines: List[str] = []
     lines.append(f'config.url = file://{conf_dir}/application.conf')
     lines.append(f'logback.configurationFile = file://{conf_dir}/logback.xml')
-    lines.append(f'sz.vertxOptions.url = file://{conf_dir}/vertxOptions.json')
-    lines.append(f'sz.zookeeper.config.url = file://{conf_dir}/zookeeper.json')
 
     fpath = app_sz_props_url(app_name)
     with open(fpath, 'w') as f:
