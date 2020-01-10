@@ -23,6 +23,7 @@ supervisor_conf_dir = '/etc/supervisor/conf.d/'
 apps_dir = '/sz/apps/'
 app_configs_dir = '/sz/deploy/configs/'
 apps_zip_dir = '/sz/deploy/zips/'
+nginx_conf_dir = '/etc/nginx/conf.d/'
 
 
 def app_home_dir(app_name: str) -> str:
@@ -44,7 +45,7 @@ def app_sz_props_url(app_name: str) -> str:
 def deploy_setup_script():
     script_dir = os.path.dirname(__file__)
     script_path = os.path.join(script_dir, 'sz_setup.py')
-    rsync(local_path = script_path, dest_path = '/usr/local/bin/')
+    rsync(local_path = script_path, dest_path = '/usr/local/bin/', hideOutput = True)
 
 
 def deploy_app_zip(args: argparse.Namespace):
@@ -57,7 +58,8 @@ def deploy_app_zip(args: argparse.Namespace):
     ssh_cmd(f'/usr/local/bin/sz_setup.py init --app-name {app_name}')
     ssh_cmd(f'/usr/local/bin/sz_setup.py stop --app-name {app_name}')
 
-    local_path = os.path.join(app_prj_path, 'build/distributions', f'{app_name}.zip')
+    local_path = os.path.join(
+        app_prj_path, 'build/distributions', f'{app_name}.zip')
     rsync(local_path, apps_zip_dir)
 
     ssh_cmd(f'/usr/local/bin/sz_setup.py installzip --app-name {app_name}')
@@ -82,7 +84,8 @@ def deploy_app(args: argparse.Namespace):
     shell(f'gradle installDist')
 
     ssh_cmd(f'/usr/local/bin/sz_setup.py init --app-name {app_name}')
-    ssh_cmd(f'/usr/local/bin/sz_setup.py stop --app-name {app_name}', exitOnError = False)
+    ssh_cmd(
+        f'/usr/local/bin/sz_setup.py stop --app-name {app_name}', exitOnError = False)
 
     local_path = os.path.join(app_prj_path, 'build/install', app_name)
     rsync(local_path, apps_dir, excluded_del = ['logs/', 'h2db/'])
@@ -119,6 +122,33 @@ def undeploy(args: argparse.Namespace):
     info(f"应用[{app_name}]在目标机器上清理完毕")
 
 
+def cmd_list_nginx_conf(args: argparse.Namespace):
+    # ssh_cmd(f'/usr/local/bin/sz_setup.py list_nginx_conf')
+    ssh_cmd(f'ls -1 {nginx_conf_dir}*.conf')
+
+
+def cmd_install_nginx_conf_parser(args: argparse.Namespace):
+    """
+    * 将指定的 nginx 配置文件上传到目标服务器的 /etc/nginx/conf.d 目录下
+    * 在目标服务器上检查配置文件是否合法有效
+    * 检查通过, 则重启 nginx 服务
+    * 检查不通过, 则删除此配置文件
+
+    Parameters
+    ----------
+    args : 命令行参数对象
+    """
+    conf_path: str = args.conf
+    if not os.path.exists(conf_path):
+        err(f'File [{conf_path}] does not exists.')
+        sys.exit(-1)
+    if not conf_path.endswith('.conf'):
+        err('File extension name must be ".conf".')
+        sys.exit(-1)
+    conf_name = os.path.basename(conf_path)
+    rsync(conf_path, nginx_conf_dir)
+    ssh_cmd(f'/usr/local/bin/sz_setup.py test_nginx_conf --conf {conf_name}')
+
 def info(msg: str):
     print(Fore.GREEN + '==> ' + msg + Fore.RESET)
 
@@ -131,7 +161,7 @@ def err(msg: str):
     print(Fore.RED + '==> ' + msg + Fore.RESET)
 
 
-def shell(cmd: str, exitOnError: bool = True, useShell = True):
+def shell(cmd: str, exitOnError: bool = True, useShell: bool = True, hideOutput: bool = False):
     """
     执行 shell 命令, 如果命令执行失败, 程序结束.
 
@@ -141,6 +171,10 @@ def shell(cmd: str, exitOnError: bool = True, useShell = True):
         需要执行的命令字符串
     exitOnError : bool
         命令执行失败的时候, 是否结束退出程序, 默认: True
+    useShell : bool
+        是否使用shell, 默认为 True
+    hideOutput : bool
+        是否隐藏输出, 默认为 False, 不隐藏
     """
     # info(cmd)
     # ret = os.system(cmd)
@@ -149,10 +183,12 @@ def shell(cmd: str, exitOnError: bool = True, useShell = True):
     #         err('Deploy operation failed.')
     #         sys.exit(ret)
     info(cmd)
-    p = subprocess.Popen(cmd, stdout = subprocess.PIPE, stderr = subprocess.STDOUT, shell = True)
-    for line in io.TextIOWrapper(p.stdout, encoding = 'utf-8'):
-        li = line.rstrip()
-        print(li)
+    p = subprocess.Popen(cmd, stdout = subprocess.PIPE,
+                         stderr = subprocess.STDOUT, shell = useShell)
+    if not hideOutput:
+        for line in io.TextIOWrapper(p.stdout, encoding = 'utf-8'):
+            li = line.rstrip()
+            print(li)
 
     ret = p.wait()
     if exitOnError:
@@ -199,10 +235,11 @@ def connect_ssh(host: str, port: int, ssh_key: str):
     dest_host = host
     ssh_port = port
     sshkey = os.path.expanduser(ssh_key)
-    ssh_client.connect(hostname = host, port = port, username = 'root', key_filename = sshkey)
+    ssh_client.connect(hostname = host, port = port,
+                       username = 'root', key_filename = sshkey)
 
 
-def rsync(local_path: str, dest_path: str, delete: bool = True, excluded_del: List[str] = []):
+def rsync(local_path: str, dest_path: str, delete: bool = True, excluded_del: List[str] = [], hideOutput: bool = False):
     """
     向目标主机, 通过 rsync 命令传输文件.
 
@@ -216,6 +253,8 @@ def rsync(local_path: str, dest_path: str, delete: bool = True, excluded_del: Li
         是否删除目标目录比源目录多余的文件, 默认: True, 删除多余文件
     excluded_del : List[str]
         目标机器上本应该被删除的文件, 按照此参数进行排除
+    hideOutput : bool
+        是否隐藏输出内容, 默认不隐藏
     """
     global dest_host, ssh_port, sshkey
     if delete and len(excluded_del) > 0:
@@ -223,7 +262,7 @@ def rsync(local_path: str, dest_path: str, delete: bool = True, excluded_del: Li
         cmd = f'rsync -av --delete {excluded_expr} --progress -e "ssh -i {os.path.expanduser(sshkey)} -p {ssh_port}" {local_path} root@{dest_host}:{dest_path}'
     else:
         cmd = f'rsync -av --progress -e "ssh -i {os.path.expanduser(sshkey)} -p {ssh_port}" {local_path} root@{dest_host}:{dest_path}'
-    shell(cmd)
+    shell(cmd, hideOutput = hideOutput)
 
 
 def main():
@@ -232,16 +271,11 @@ def main():
     subcmds = top_parser.add_subparsers(title = '子命令', description = "注: 通过以下子命令指定部署/操作类型, 详细参数用法请在子命令后加上 -h 查看",
                                         dest = 'cmd_name')
 
-    cmd_actions = {
-        'app': deploy_app_zip,
-        'conf': deploy_conf,
-        'undeploy': undeploy
-    }
-
     deployapp_parser = subcmds.add_parser('app', help = '部署[应用]到目标服务器')
     deployapp_parser.add_argument('--prj-dir', help = '[应用]对应的gradle工程目录路径,必填参数',
                                   metavar = '~/work/vertx-web-mutli/api_server', required = True)
-    deployapp_parser.add_argument('--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
+    deployapp_parser.add_argument(
+        '--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
     deployapp_parser.add_argument('--port', help = '目标主机ssh服务端口,默认:10022', type = int, default = 10022,
                                   metavar = '10022')
     deployapp_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa', default = '~/.ssh/id_rsa',
@@ -252,20 +286,50 @@ def main():
                                    required = True)
     deployconf_parser.add_argument('--prj-dir', help = '[应用]对应的gradle工程目录路径,必填参数',
                                    metavar = '~/work/vertx-web-mutli/api_server', required = True)
-    deployconf_parser.add_argument('--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
+    deployconf_parser.add_argument(
+        '--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
     deployconf_parser.add_argument('--port', help = '目标主机ssh服务端口,默认:10022', type = int, default = 10022,
                                    metavar = '10022')
     deployconf_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa', default = '~/.ssh/id_rsa',
                                    metavar = '~/.ssh/id_rsa')
 
-    undeploy_parser = subcmds.add_parser('undeploy', help = '清理删除部署在目标服务器的[应用]和[配置]')
+    undeploy_parser = subcmds.add_parser(
+        'undeploy', help = '清理删除部署在目标服务器的[应用]和[配置]')
     undeploy_parser.add_argument('--prj-dir', help = '[应用]对应的gradle工程目录路径,必填参数',
                                  metavar = '~/work/vertx-web-mutli/api_server', required = True)
-    undeploy_parser.add_argument('--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
+    undeploy_parser.add_argument(
+        '--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
     undeploy_parser.add_argument('--port', help = '目标主机ssh服务端口,默认:10022', type = int, default = 10022,
                                  metavar = '10022')
     undeploy_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa', default = '~/.ssh/id_rsa',
                                  metavar = '~/.ssh/id_rsa')
+
+    list_nginx_conf_parser = subcmds.add_parser(
+        'list_nginx_conf', help = '列出服务器上 /etc/nginx/conf.d/ 下所有的配置文件')
+    list_nginx_conf_parser.add_argument(
+        '--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
+    list_nginx_conf_parser.add_argument('--port', help = '目标主机ssh服务端口,默认:10022', type = int, default = 10022,
+                                        metavar = '10022')
+    list_nginx_conf_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa', default = '~/.ssh/id_rsa',
+                                        metavar = '~/.ssh/id_rsa')
+
+    install_nginx_conf_parser = subcmds.add_parser(
+        'install_nginx_conf', help = '部署/更新指定的 nginx 配置文件')
+    install_nginx_conf_parser.add_argument('--conf', help = '需要部署的 nginx 配置文件路径', required = True)
+    install_nginx_conf_parser.add_argument(
+        '--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
+    install_nginx_conf_parser.add_argument('--port', help = '目标主机ssh服务端口,默认:10022', type = int, default = 10022,
+                                           metavar = '10022')
+    install_nginx_conf_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa',
+                                           default = '~/.ssh/id_rsa',
+                                           metavar = '~/.ssh/id_rsa')
+
+    cmd_actions = {
+        'app': deploy_app_zip,
+        'conf': deploy_conf,
+        'undeploy': undeploy,
+        'list_nginx_conf': cmd_list_nginx_conf
+    }
 
     args = top_parser.parse_args()
 

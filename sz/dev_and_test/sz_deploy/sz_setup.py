@@ -16,12 +16,14 @@ import shutil
 import subprocess
 import sys
 import time
+import pathlib
 from typing import List
 
 supervisor_conf_dir = '/etc/supervisor/conf.d/'
 apps_dir = '/sz/apps/'
 app_configs_dir = '/sz/deploy/configs/'
 apps_zip_dir = '/sz/deploy/zips/'
+nginx_conf_dir = '/etc/nginx/conf.d/'
 
 
 def code_to_chars(code):
@@ -75,7 +77,7 @@ def err(msg: str):
     print(Fore.RED + '[docker] ' + msg + Fore.RESET)
 
 
-def shell(cmd: str, exitOnError: bool = False) -> int:
+def shell(cmd: str) -> int:
     """
     执行 shell 命令, 如果命令执行失败, 程序结束.
 
@@ -83,8 +85,6 @@ def shell(cmd: str, exitOnError: bool = False) -> int:
     ----------
     cmd : str
         需要执行的命令字符串
-    exitOnError : bool
-        命令执行失败的时候, 是否结束退出程序, 默认: True
     """
     info(cmd)
     p = subprocess.Popen(cmd, stdout = subprocess.PIPE, stderr = subprocess.STDOUT, shell = True)
@@ -92,12 +92,7 @@ def shell(cmd: str, exitOnError: bool = False) -> int:
         li = line.rstrip()
         print(li)
 
-    ret = p.wait()
-    if exitOnError:
-        if (ret != 0):
-            err(f'operation failed. [return code: {ret}]')
-            sys.exit(ret)
-    return ret
+    return p.wait()
 
 
 def rmdir(dir: str, excludes: List[str]):
@@ -332,6 +327,47 @@ def cmd_status(args: argparse.Namespace):
     status_of(args.app_name)
 
 
+def cmd_test_nginx_conf(args: argparse.Namespace):
+    """
+    * 检查配置文件是否存在
+    * 测试配置文件语法是否正确
+    * 如果测试通过, 则重启 nginx 服务
+    * 如果测试不通过, 则删除该配置文件,然后退出程序
+
+    Parameters
+    ----------
+        args: 命令行参数对象
+
+    """
+    conf_path = os.path.join(nginx_conf_dir, args.conf)
+    if not os.path.exists(conf_path):
+        err(f'The nginx conf file [{conf_path}] does not exists.')
+        sys.exit(-1)
+    ret = shell(f'nginx -t -c {conf_path}')
+    if ret != 0:
+        # 配置文件有错误, 删除它
+        os.remove(conf_path)
+    else:
+        # 配置文件检查通过, 重启 nginx 服务
+        ret = shell('supervisorctl restart nginx')
+    sys.exit(ret)
+
+
+def cmd_list_nginx_conf(args: argparse.Namespace):
+    # todo: cmd_list_nginx_conf
+    # 列出服务器上 /etc/nginx/conf.d/ 下所有的配置文件
+    conf_list = pathlib.Path(nginx_conf_dir).glob('*.conf')
+    conf_names = '\n'.join([x.name for x in conf_list])
+    info(f'\n{conf_names}')
+
+
+def cmd_delete_nginx_conf(args: argparse.Namespace):
+    # todo: cmd_delete_nginx_conf
+    # 删除服务器上 /etc/nginx/conf.d/ 指定的配置文件
+    conf_name = args.conf
+    pass
+
+
 def main():
     top_parser = argparse.ArgumentParser(description = 'SZ后端 [应用服务] 安装工具.')
 
@@ -341,10 +377,6 @@ def main():
     init_parser = subcmds.add_parser('init', help = '在服务器上初始化部署操作需要的目录')
     init_parser.add_argument('--app-name', help = '应用服务名称,必填参数',
                              metavar = 'api_server', required = True)
-
-    # install_parser = subcmds.add_parser('install', help = '在服务器上 部署/更新 应用服务')
-    # install_parser.add_argument('--app-name', help = '应用服务名称,必填参数',
-    #                             metavar = 'api_server', required = True)
 
     install_zip_parser = subcmds.add_parser('installzip', help = '由上传/更新的应用程序的zip文件,在服务器上 部署/更新 应用服务')
     install_zip_parser.add_argument('--app-name', help = '应用服务名称,必填参数',
@@ -366,6 +398,14 @@ def main():
     status_parser.add_argument('--app-name', help = '应用服务名称,必填参数',
                                metavar = 'api_server', required = True)
 
+    test_nginx_conf_parser = subcmds.add_parser('test_nginx_conf', help = '在服务器上测试指定的 nginx 配置文件')
+    test_nginx_conf_parser.add_argument('--conf', help = 'nginx 配置文件名称', required = True)
+
+    list_nginx_conf_parser = subcmds.add_parser('list_nginx_conf', help = '列出服务器上 /etc/nginx/conf.d/ 下所有的配置文件')
+
+    delete_nginx_conf_parser = subcmds.add_parser('delete_nginx_conf', help = '删除服务器上 /etc/nginx/conf.d/ 指定名称的配置文件')
+    delete_nginx_conf_parser.add_argument('--conf', help = 'nginx 配置文件名称', required = True)
+
     args = top_parser.parse_args()
 
     if not args.cmd_name:
@@ -379,7 +419,10 @@ def main():
         'uninstall': cmd_uninstall,
         'start': cmd_start,
         'stop': cmd_stop,
-        'status': cmd_status
+        'status': cmd_status,
+        'test_nginx_conf': cmd_test_nginx_conf,
+        'list_nginx_conf': cmd_list_nginx_conf,
+        'delete_nginx_conf_parser': cmd_delete_nginx_conf
     }
 
     action = cmd_actions[args.cmd_name]
