@@ -123,11 +123,16 @@ def undeploy(args: argparse.Namespace):
 
 
 def cmd_list_nginx_conf(args: argparse.Namespace):
-    # ssh_cmd(f'/usr/local/bin/sz_setup.py list_nginx_conf')
-    ssh_cmd(f'ls -1 {nginx_conf_dir}*.conf')
+    ssh_cmd(f'/usr/local/bin/sz_setup.py list_nginx_conf')
 
 
-def cmd_install_nginx_conf_parser(args: argparse.Namespace):
+def cmd_dump_nginx_conf(args: argparse.Namespace):
+    conf_name = args.conf
+    conf_path = os.path.join(nginx_conf_dir, conf_name)
+    ssh_cmd(f'cat {conf_path}', showPrefix = False)
+
+
+def cmd_install_nginx_conf(args: argparse.Namespace):
     """
     * 将指定的 nginx 配置文件上传到目标服务器的 /etc/nginx/conf.d 目录下
     * 在目标服务器上检查配置文件是否合法有效
@@ -148,6 +153,7 @@ def cmd_install_nginx_conf_parser(args: argparse.Namespace):
     conf_name = os.path.basename(conf_path)
     rsync(conf_path, nginx_conf_dir)
     ssh_cmd(f'/usr/local/bin/sz_setup.py test_nginx_conf --conf {conf_name}')
+
 
 def info(msg: str):
     print(Fore.GREEN + '==> ' + msg + Fore.RESET)
@@ -198,7 +204,7 @@ def shell(cmd: str, exitOnError: bool = True, useShell: bool = True, hideOutput:
     return ret
 
 
-def ssh_cmd(cmd: str, exitOnError: bool = True) -> (List[str], int):
+def ssh_cmd(cmd: str, exitOnError: bool = True, showPrefix: bool = True) -> (List[str], int):
     """
     在目标主机上, 通过 ssh 执行命令.
 
@@ -222,7 +228,10 @@ def ssh_cmd(cmd: str, exitOnError: bool = True) -> (List[str], int):
     for line in io.TextIOWrapper(stdout, encoding = 'utf-8'):
         li = line.rstrip()
         output_lines.append(li)
-        print(Fore.BLUE + '==> ' + Fore.RESET + li)
+        if showPrefix:
+            print(Fore.BLUE + '==> ' + Fore.RESET + li)
+        else:
+            print(li)
     ret = stdout.channel.recv_exit_status()
     if exitOnError:
         if ret != 0:
@@ -313,6 +322,15 @@ def main():
     list_nginx_conf_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa', default = '~/.ssh/id_rsa',
                                         metavar = '~/.ssh/id_rsa')
 
+    dump_nginx_conf_parser = subcmds.add_parser('dump_nginx_conf', help = '输出指定的 nginx 配置文件内容')
+    dump_nginx_conf_parser.add_argument('--conf', help = '指定的 nginx 配置文件名称(仅文件名)', required = True)
+    dump_nginx_conf_parser.add_argument(
+        '--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
+    dump_nginx_conf_parser.add_argument('--port', help = '目标主机ssh服务端口,默认:10022', type = int, default = 10022,
+                                        metavar = '10022')
+    dump_nginx_conf_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa', default = '~/.ssh/id_rsa',
+                                        metavar = '~/.ssh/id_rsa')
+
     install_nginx_conf_parser = subcmds.add_parser(
         'install_nginx_conf', help = '部署/更新指定的 nginx 配置文件')
     install_nginx_conf_parser.add_argument('--conf', help = '需要部署的 nginx 配置文件路径', required = True)
@@ -328,7 +346,9 @@ def main():
         'app': deploy_app_zip,
         'conf': deploy_conf,
         'undeploy': undeploy,
-        'list_nginx_conf': cmd_list_nginx_conf
+        'list_nginx_conf': cmd_list_nginx_conf,
+        'dump_nginx_conf': cmd_dump_nginx_conf,
+        'install_nginx_conf': cmd_install_nginx_conf,
     }
 
     args = top_parser.parse_args()
