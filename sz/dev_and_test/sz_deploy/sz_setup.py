@@ -343,13 +343,14 @@ def cmd_test_nginx_conf(args: argparse.Namespace):
     if not os.path.exists(conf_path):
         err(f'The nginx conf file [{conf_path}] does not exists.')
         sys.exit(-1)
-    ret = shell(f'nginx -t -c {conf_path}')
-    if ret != 0:
-        # 配置文件有错误, 删除它
-        os.remove(conf_path)
-    else:
-        # 配置文件检查通过, 重启 nginx 服务
-        ret = shell('supervisorctl restart nginx')
+    # ret = shell(f'nginx -t -c {conf_path}')
+    # if ret != 0:
+    #     # 配置文件有错误, 删除它
+    #     os.remove(conf_path)
+    # else:
+    #     # 配置文件检查通过, 重启 nginx 服务
+    #     ret = shell('supervisorctl restart nginx')
+    ret = shell('supervisorctl restart nginx')
     sys.exit(ret)
 
 
@@ -362,10 +363,15 @@ def cmd_list_nginx_conf(args: argparse.Namespace):
 
 
 def cmd_delete_nginx_conf(args: argparse.Namespace):
-    # todo: cmd_delete_nginx_conf
-    # 删除服务器上 /etc/nginx/conf.d/ 指定的配置文件
+    # 检查配置文件是否存在
+    # 删除服务器上 /etc/nginx/conf.d/ 下的指定的配置文件
     conf_name = args.conf
-    pass
+    conf_path = os.path.join(nginx_conf_dir, conf_name)
+    if not os.path.exists(conf_path):
+        err(f'指定的 nginx 配置文件: [{conf_path}] 不存在')
+    os.remove(conf_path)
+    ret = shell('supervisorctl restart nginx')
+    sys.exit(ret)
 
 
 def main():
@@ -422,7 +428,7 @@ def main():
         'status': cmd_status,
         'test_nginx_conf': cmd_test_nginx_conf,
         'list_nginx_conf': cmd_list_nginx_conf,
-        'delete_nginx_conf_parser': cmd_delete_nginx_conf
+        'delete_nginx_conf': cmd_delete_nginx_conf
     }
 
     action = cmd_actions[args.cmd_name]

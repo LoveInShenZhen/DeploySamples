@@ -24,6 +24,7 @@ apps_dir = '/sz/apps/'
 app_configs_dir = '/sz/deploy/configs/'
 apps_zip_dir = '/sz/deploy/zips/'
 nginx_conf_dir = '/etc/nginx/conf.d/'
+web_apps_dir = '/web_html/'
 
 
 def app_home_dir(app_name: str) -> str:
@@ -49,7 +50,7 @@ def deploy_setup_script():
 
 
 def deploy_app_zip(args: argparse.Namespace):
-    app_prj_path = args.prj_dir
+    app_prj_path = os.path.expanduser(args.prj_dir)
     app_name = os.path.basename(app_prj_path)
     info(f'编译构建应用[{app_name}]')
     os.chdir(app_prj_path)
@@ -115,7 +116,7 @@ def deploy_conf(args: argparse.Namespace):
 
 
 def undeploy(args: argparse.Namespace):
-    app_prj_path = args.prj_dir
+    app_prj_path = os.path.expanduser(args.prj_dir)
     app_name = os.path.basename(app_prj_path)
     info(f"开始清理删除部署在目标服务器的应用[{app_name}]")
     ssh_cmd(f'/usr/local/bin/sz_setup.py uninstall --app-name {app_name}')
@@ -143,7 +144,7 @@ def cmd_install_nginx_conf(args: argparse.Namespace):
     ----------
     args : 命令行参数对象
     """
-    conf_path: str = args.conf
+    conf_path: str = os.path.expanduser(args.conf)
     if not os.path.exists(conf_path):
         err(f'File [{conf_path}] does not exists.')
         sys.exit(-1)
@@ -154,6 +155,45 @@ def cmd_install_nginx_conf(args: argparse.Namespace):
     rsync(conf_path, nginx_conf_dir)
     ssh_cmd(f'/usr/local/bin/sz_setup.py test_nginx_conf --conf {conf_name}')
 
+def cmd_uninstall_nginx_conf(args: argparse.Namespace):
+    conf_name = args.conf
+    ssh_cmd(f'/usr/local/bin/sz_setup.py delete_nginx_conf --conf {conf_name}')
+
+
+def cmd_install_web_app(args: argparse.Namespace):
+    """
+    * 检查 --web_app 指定的路径是否存在
+    * 确定 app_name
+    * 远程创建目标目录
+    * rsync 传输文件
+
+    Parameters
+    ----------
+    args
+    """
+    app_name = args.app_name
+    web_local = os.path.expanduser(args.web_app)
+    if not os.path.exists(web_local):
+        err(f'Dir [{web_local}] does not exists.')
+        sys.exit(-1)
+    if not os.path.isdir(web_local):
+        err(f'[{web_local}] is not a dir.')
+        sys.exit(-1)
+    if app_name == '':
+        app_name = os.path.basename(web_local)
+
+    dest_dir = f'{web_apps_dir}{app_name}'
+
+    ssh_cmd(f'mkdir -p {dest_dir}')
+    rsync(f'{web_local}/*', dest_dir)
+    ssh_cmd(f'chown -R nginx:nginx {dest_dir}')
+    info("部署完毕")
+
+def cmd_uninstall_web_app(args: argparse.Namespace):
+    app_name = args.app_name
+    dest_dir = f'{web_apps_dir}{app_name}'
+    ssh_cmd(f'rm -rvf {dest_dir}')
+    info('删除完毕')
 
 def info(msg: str):
     print(Fore.GREEN + '==> ' + msg + Fore.RESET)
@@ -342,6 +382,41 @@ def main():
                                            default = '~/.ssh/id_rsa',
                                            metavar = '~/.ssh/id_rsa')
 
+    uninstall_nginx_conf_parser = subcmds.add_parser('uninstall_nginx_conf', help = '从目标主机里删除指定的 nginx 配置')
+    uninstall_nginx_conf_parser.add_argument('--conf', help = '需要删除的 nginx 配置文件名称(仅文件名)', required = True)
+    uninstall_nginx_conf_parser.add_argument(
+        '--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
+    uninstall_nginx_conf_parser.add_argument('--port', help = '目标主机ssh服务端口,默认:10022', type = int, default = 10022,
+                                      metavar = '10022')
+    uninstall_nginx_conf_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa',
+                                      default = '~/.ssh/id_rsa',
+                                      metavar = '~/.ssh/id_rsa')
+
+    install_web_app_parser = subcmds.add_parser('install_web_app', help = '部署/更新指定的 web 应用')
+    install_web_app_parser.add_argument('--web_app', help = '需要部署的 web 应用的路径', required = True)
+    install_web_app_parser.add_argument('--app_name',
+                                        help = 'web 应用的名称, 以该名称在目标服务器上创建子目录进行部署. 如果不指定, 则以 --web_app 指定的目录的目录名为应用名称',
+                                        default = '')
+    install_web_app_parser.add_argument(
+        '--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
+    install_web_app_parser.add_argument('--port', help = '目标主机ssh服务端口,默认:10022', type = int, default = 10022,
+                                        metavar = '10022')
+    install_web_app_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa',
+                                        default = '~/.ssh/id_rsa',
+                                        metavar = '~/.ssh/id_rsa')
+
+    uninstall_web_app_parser = subcmds.add_parser('uninstall_web_app', help='从目标服务器上删除指定的 web 应用')
+    uninstall_web_app_parser.add_argument('--app_name',
+                                        help = '要删除的 web 应用的名称',
+                                        default = '')
+    uninstall_web_app_parser.add_argument(
+        '--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
+    uninstall_web_app_parser.add_argument('--port', help = '目标主机ssh服务端口,默认:10022', type = int, default = 10022,
+                                        metavar = '10022')
+    uninstall_web_app_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa',
+                                        default = '~/.ssh/id_rsa',
+                                        metavar = '~/.ssh/id_rsa')
+
     cmd_actions = {
         'app': deploy_app_zip,
         'conf': deploy_conf,
@@ -349,6 +424,9 @@ def main():
         'list_nginx_conf': cmd_list_nginx_conf,
         'dump_nginx_conf': cmd_dump_nginx_conf,
         'install_nginx_conf': cmd_install_nginx_conf,
+        'uninstall_nginx_conf': cmd_uninstall_nginx_conf,
+        'install_web_app': cmd_install_web_app,
+        'uninstall_web_app': cmd_uninstall_web_app
     }
 
     args = top_parser.parse_args()
