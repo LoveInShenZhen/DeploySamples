@@ -27,6 +27,17 @@ nginx_conf_dir = '/etc/nginx/conf.d/'
 web_apps_dir = '/web_html/'
 
 
+class PathArgAction(argparse.Action):
+    def __init__(self, option_strings, dest, nargs = None, **kwargs):
+        if nargs is not None:
+            raise ValueError("nargs not allowed")
+        super(PathArgAction, self).__init__(option_strings, dest, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string = None):
+        absPath = os.path.abspath(os.path.expanduser(values))
+        setattr(namespace, self.dest, absPath)
+
+
 def app_home_dir(app_name: str) -> str:
     return f'{apps_dir}{app_name}'
 
@@ -50,7 +61,7 @@ def deploy_setup_script():
 
 
 def deploy_app_zip(args: argparse.Namespace):
-    app_prj_path = os.path.expanduser(args.prj_dir)
+    app_prj_path = args.prj_dir
     app_name = os.path.basename(app_prj_path)
     info(f'编译构建应用[{app_name}]')
     os.chdir(app_prj_path)
@@ -78,7 +89,7 @@ def deploy_app(args: argparse.Namespace):
     args :
            部署参数
     """
-    app_prj_path = os.path.expanduser(args.prj_dir)
+    app_prj_path = args.prj_dir
     app_name = os.path.basename(app_prj_path)
     info(f'编译构建应用[{app_name}]')
     os.chdir(app_prj_path)
@@ -99,9 +110,9 @@ def deploy_app(args: argparse.Namespace):
 
 def deploy_conf(args: argparse.Namespace):
     info("部署运行环境配置文件")
-    app_prj_path = os.path.expanduser(args.prj_dir)
+    app_prj_path = args.prj_dir
     app_name = os.path.basename(app_prj_path)
-    local_conf_dir = f'{os.path.expanduser(args.conf_dir)}/*'
+    local_conf_dir = f'{args.conf_dir}/*'
     dest_conf_dir = app_conf_dir(app_name)
     dest_app_conf_dir = f'{app_home_dir(app_name)}/conf'
 
@@ -116,7 +127,7 @@ def deploy_conf(args: argparse.Namespace):
 
 
 def undeploy(args: argparse.Namespace):
-    app_prj_path = os.path.expanduser(args.prj_dir)
+    app_prj_path = args.prj_dir
     app_name = os.path.basename(app_prj_path)
     info(f"开始清理删除部署在目标服务器的应用[{app_name}]")
     ssh_cmd(f'/usr/local/bin/sz_setup.py uninstall --app-name {app_name}')
@@ -144,7 +155,7 @@ def cmd_install_nginx_conf(args: argparse.Namespace):
     ----------
     args : 命令行参数对象
     """
-    conf_path: str = os.path.expanduser(args.conf)
+    conf_path: str = args.conf
     if not os.path.exists(conf_path):
         err(f'File [{conf_path}] does not exists.')
         sys.exit(-1)
@@ -154,6 +165,7 @@ def cmd_install_nginx_conf(args: argparse.Namespace):
     conf_name = os.path.basename(conf_path)
     rsync(conf_path, nginx_conf_dir)
     ssh_cmd(f'/usr/local/bin/sz_setup.py test_nginx_conf --conf {conf_name}')
+
 
 def cmd_uninstall_nginx_conf(args: argparse.Namespace):
     conf_name = args.conf
@@ -172,7 +184,7 @@ def cmd_install_web_app(args: argparse.Namespace):
     args
     """
     app_name = args.app_name
-    web_local = os.path.expanduser(args.web_app)
+    web_local = args.web_app
     if not os.path.exists(web_local):
         err(f'Dir [{web_local}] does not exists.')
         sys.exit(-1)
@@ -189,11 +201,13 @@ def cmd_install_web_app(args: argparse.Namespace):
     ssh_cmd(f'chown -R nginx:nginx {dest_dir}')
     info("部署完毕")
 
+
 def cmd_uninstall_web_app(args: argparse.Namespace):
     app_name = args.app_name
     dest_dir = f'{web_apps_dir}{app_name}'
     ssh_cmd(f'rm -rvf {dest_dir}')
     info('删除完毕')
+
 
 def info(msg: str):
     print(Fore.GREEN + '==> ' + msg + Fore.RESET)
@@ -283,7 +297,7 @@ def connect_ssh(host: str, port: int, ssh_key: str):
     global ssh_client, dest_host, ssh_port, sshkey
     dest_host = host
     ssh_port = port
-    sshkey = os.path.expanduser(ssh_key)
+    sshkey = ssh_key
     ssh_client.connect(hostname = host, port = port,
                        username = 'root', key_filename = sshkey)
 
@@ -308,9 +322,9 @@ def rsync(local_path: str, dest_path: str, delete: bool = True, excluded_del: Li
     global dest_host, ssh_port, sshkey
     if delete and len(excluded_del) > 0:
         excluded_expr = ' '.join([f'--exclude "{it}"' for it in excluded_del])
-        cmd = f'rsync -av --delete {excluded_expr} --progress -e "ssh -i {os.path.expanduser(sshkey)} -p {ssh_port}" {local_path} root@{dest_host}:{dest_path}'
+        cmd = f'rsync -av --delete {excluded_expr} --progress -e "ssh -i {sshkey} -p {ssh_port}" {local_path} root@{dest_host}:{dest_path}'
     else:
-        cmd = f'rsync -av --progress -e "ssh -i {os.path.expanduser(sshkey)} -p {ssh_port}" {local_path} root@{dest_host}:{dest_path}'
+        cmd = f'rsync -av --progress -e "ssh -i {sshkey} -p {ssh_port}" {local_path} root@{dest_host}:{dest_path}'
     shell(cmd, hideOutput = hideOutput)
 
 
@@ -320,102 +334,213 @@ def main():
     subcmds = top_parser.add_subparsers(title = '子命令', description = "注: 通过以下子命令指定部署/操作类型, 详细参数用法请在子命令后加上 -h 查看",
                                         dest = 'cmd_name')
 
+    # <editor-fold desc="子命令: app">
     deployapp_parser = subcmds.add_parser('app', help = '部署[应用]到目标服务器')
-    deployapp_parser.add_argument('--prj-dir', help = '[应用]对应的gradle工程目录路径,必填参数',
+    deployapp_parser.add_argument('--prj-dir',
+                                  action = PathArgAction,
+                                  help = '[应用]对应的gradle工程目录路径,必填参数',
                                   metavar = '~/work/vertx-web-mutli/api_server', required = True)
-    deployapp_parser.add_argument(
-        '--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
-    deployapp_parser.add_argument('--port', help = '目标主机ssh服务端口,默认:10022', type = int, default = 10022,
+    deployapp_parser.add_argument('--host',
+                                  help = '目标主机IP,默认:127.0.0.1',
+                                  default = "127.0.0.1",
+                                  metavar = "127.0.0.1")
+    deployapp_parser.add_argument('--port',
+                                  help = '目标主机ssh服务端口,默认:10022',
+                                  type = int,
+                                  default = 10022,
                                   metavar = '10022')
-    deployapp_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa', default = '~/.ssh/id_rsa',
+    deployapp_parser.add_argument('--ssh-key',
+                                  action = PathArgAction,
+                                  help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa',
+                                  default = '~/.ssh/id_rsa',
                                   metavar = '~/.ssh/id_rsa')
+    # </editor-fold>
 
+    # <editor-fold desc="子命令: conf">
     deployconf_parser = subcmds.add_parser('conf', help = '部署[一组配置文件]到目标服务器')
-    deployconf_parser.add_argument('--conf-dir', help = '配置文件目录的路径,必填参数', metavar = '~/work/test_env/api_server/conf',
+    deployconf_parser.add_argument('--conf-dir',
+                                   action = PathArgAction,
+                                   help = '配置文件目录的路径,必填参数',
+                                   metavar = '~/work/test_env/api_server/conf',
                                    required = True)
-    deployconf_parser.add_argument('--prj-dir', help = '[应用]对应的gradle工程目录路径,必填参数',
-                                   metavar = '~/work/vertx-web-mutli/api_server', required = True)
-    deployconf_parser.add_argument(
-        '--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
-    deployconf_parser.add_argument('--port', help = '目标主机ssh服务端口,默认:10022', type = int, default = 10022,
+    deployconf_parser.add_argument('--prj-dir',
+                                   action = PathArgAction,
+                                   help = '[应用]对应的gradle工程目录路径,必填参数',
+                                   metavar = '~/work/vertx-web-mutli/api_server',
+                                   required = True)
+    deployconf_parser.add_argument('--host',
+                                   help = '目标主机IP,默认:127.0.0.1',
+                                   default = "127.0.0.1",
+                                   metavar = "127.0.0.1")
+    deployconf_parser.add_argument('--port',
+                                   help = '目标主机ssh服务端口,默认:10022',
+                                   type = int,
+                                   default = 10022,
                                    metavar = '10022')
-    deployconf_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa', default = '~/.ssh/id_rsa',
+    deployconf_parser.add_argument('--ssh-key',
+                                   action = PathArgAction,
+                                   help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa',
+                                   default = '~/.ssh/id_rsa',
                                    metavar = '~/.ssh/id_rsa')
+    # </editor-fold>
 
-    undeploy_parser = subcmds.add_parser(
-        'undeploy', help = '清理删除部署在目标服务器的[应用]和[配置]')
-    undeploy_parser.add_argument('--prj-dir', help = '[应用]对应的gradle工程目录路径,必填参数',
-                                 metavar = '~/work/vertx-web-mutli/api_server', required = True)
-    undeploy_parser.add_argument(
-        '--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
-    undeploy_parser.add_argument('--port', help = '目标主机ssh服务端口,默认:10022', type = int, default = 10022,
+    # <editor-fold desc="子命令: undeploy">
+    undeploy_parser = subcmds.add_parser('undeploy',
+                                         help = '清理删除部署在目标服务器的[应用]和[配置]')
+    undeploy_parser.add_argument('--prj-dir',
+                                 action = PathArgAction,
+                                 help = '[应用]对应的gradle工程目录路径,必填参数',
+                                 metavar = '~/work/vertx-web-mutli/api_server',
+                                 required = True)
+    undeploy_parser.add_argument('--host',
+                                 help = '目标主机IP,默认:127.0.0.1',
+                                 default = "127.0.0.1",
+                                 metavar = "127.0.0.1")
+    undeploy_parser.add_argument('--port',
+                                 help = '目标主机ssh服务端口,默认:10022',
+                                 type = int,
+                                 default = 10022,
                                  metavar = '10022')
-    undeploy_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa', default = '~/.ssh/id_rsa',
+    undeploy_parser.add_argument('--ssh-key',
+                                 action = PathArgAction,
+                                 help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa',
+                                 default = '~/.ssh/id_rsa',
                                  metavar = '~/.ssh/id_rsa')
+    # </editor-fold>
 
-    list_nginx_conf_parser = subcmds.add_parser(
-        'list_nginx_conf', help = '列出服务器上 /etc/nginx/conf.d/ 下所有的配置文件')
-    list_nginx_conf_parser.add_argument(
-        '--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
-    list_nginx_conf_parser.add_argument('--port', help = '目标主机ssh服务端口,默认:10022', type = int, default = 10022,
+    # <editor-fold desc="子命令: list_nginx_conf">
+    list_nginx_conf_parser = subcmds.add_parser('list_nginx_conf',
+                                                help = '列出服务器上 /etc/nginx/conf.d/ 下所有的配置文件')
+    list_nginx_conf_parser.add_argument('--host',
+                                        help = '目标主机IP,默认:127.0.0.1',
+                                        default = "127.0.0.1",
+                                        metavar = "127.0.0.1")
+    list_nginx_conf_parser.add_argument('--port',
+                                        help = '目标主机ssh服务端口,默认:10022',
+                                        type = int,
+                                        default = 10022,
                                         metavar = '10022')
-    list_nginx_conf_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa', default = '~/.ssh/id_rsa',
+    list_nginx_conf_parser.add_argument('--ssh-key',
+                                        action = PathArgAction,
+                                        help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa',
+                                        default = '~/.ssh/id_rsa',
                                         metavar = '~/.ssh/id_rsa')
+    # </editor-fold>
 
-    dump_nginx_conf_parser = subcmds.add_parser('dump_nginx_conf', help = '输出指定的 nginx 配置文件内容')
-    dump_nginx_conf_parser.add_argument('--conf', help = '指定的 nginx 配置文件名称(仅文件名)', required = True)
-    dump_nginx_conf_parser.add_argument(
-        '--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
-    dump_nginx_conf_parser.add_argument('--port', help = '目标主机ssh服务端口,默认:10022', type = int, default = 10022,
+    # <editor-fold desc="子命令: dump_nginx_conf">
+    dump_nginx_conf_parser = subcmds.add_parser('dump_nginx_conf',
+                                                help = '输出指定的 nginx 配置文件内容')
+    dump_nginx_conf_parser.add_argument('--conf',
+                                        help = '指定的 nginx 配置文件名称(仅文件名)',
+                                        required = True)
+    dump_nginx_conf_parser.add_argument('--host',
+                                        help = '目标主机IP,默认:127.0.0.1',
+                                        default = "127.0.0.1",
+                                        metavar = "127.0.0.1")
+    dump_nginx_conf_parser.add_argument('--port',
+                                        help = '目标主机ssh服务端口,默认:10022',
+                                        type = int,
+                                        default = 10022,
                                         metavar = '10022')
-    dump_nginx_conf_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa', default = '~/.ssh/id_rsa',
+    dump_nginx_conf_parser.add_argument('--ssh-key',
+                                        action = PathArgAction,
+                                        help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa',
+                                        default = '~/.ssh/id_rsa',
                                         metavar = '~/.ssh/id_rsa')
+    # </editor-fold>
 
-    install_nginx_conf_parser = subcmds.add_parser(
-        'install_nginx_conf', help = '部署/更新指定的 nginx 配置文件')
-    install_nginx_conf_parser.add_argument('--conf', help = '需要部署的 nginx 配置文件路径', required = True)
-    install_nginx_conf_parser.add_argument(
-        '--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
-    install_nginx_conf_parser.add_argument('--port', help = '目标主机ssh服务端口,默认:10022', type = int, default = 10022,
+    # <editor-fold desc="子命令: install_nginx_conf">
+    install_nginx_conf_parser = subcmds.add_parser('install_nginx_conf',
+                                                   help = '部署/更新指定的 nginx 配置文件')
+    install_nginx_conf_parser.add_argument('--conf',
+                                           action = PathArgAction,
+                                           help = '本地需要部署目标服务器的 nginx 配置文件路径',
+                                           required = True)
+    install_nginx_conf_parser.add_argument('--host',
+                                           help = '目标主机IP,默认:127.0.0.1',
+                                           default = "127.0.0.1",
+                                           metavar = "127.0.0.1")
+    install_nginx_conf_parser.add_argument('--port',
+                                           help = '目标主机ssh服务端口,默认:10022',
+                                           type = int,
+                                           default = 10022,
                                            metavar = '10022')
-    install_nginx_conf_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa',
+    install_nginx_conf_parser.add_argument('--ssh-key',
+                                           action = PathArgAction,
+                                           help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa',
                                            default = '~/.ssh/id_rsa',
                                            metavar = '~/.ssh/id_rsa')
+    # </editor-fold>
 
-    uninstall_nginx_conf_parser = subcmds.add_parser('uninstall_nginx_conf', help = '从目标主机里删除指定的 nginx 配置')
-    uninstall_nginx_conf_parser.add_argument('--conf', help = '需要删除的 nginx 配置文件名称(仅文件名)', required = True)
-    uninstall_nginx_conf_parser.add_argument(
-        '--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
-    uninstall_nginx_conf_parser.add_argument('--port', help = '目标主机ssh服务端口,默认:10022', type = int, default = 10022,
-                                      metavar = '10022')
-    uninstall_nginx_conf_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa',
-                                      default = '~/.ssh/id_rsa',
-                                      metavar = '~/.ssh/id_rsa')
+    # <editor-fold desc="子命令: uninstall_nginx_conf">
+    uninstall_nginx_conf_parser = subcmds.add_parser('uninstall_nginx_conf',
+                                                     help = '从目标主机里删除指定的 nginx 配置')
+    uninstall_nginx_conf_parser.add_argument('--conf',
+                                             help = '需要删除的 nginx 配置文件名称(仅文件名)',
+                                             required = True)
+    uninstall_nginx_conf_parser.add_argument('--host',
+                                             help = '目标主机IP,默认:127.0.0.1',
+                                             default = "127.0.0.1",
+                                             metavar = "127.0.0.1")
+    uninstall_nginx_conf_parser.add_argument('--port',
+                                             help = '目标主机ssh服务端口,默认:10022',
+                                             type = int,
+                                             default = 10022,
+                                             metavar = '10022')
+    uninstall_nginx_conf_parser.add_argument('--ssh-key',
+                                             action = PathArgAction,
+                                             help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa',
+                                             default = '~/.ssh/id_rsa',
+                                             metavar = '~/.ssh/id_rsa')
+    # </editor-fold>
 
-    install_web_app_parser = subcmds.add_parser('install_web_app', help = '部署/更新指定的 web 应用')
-    install_web_app_parser.add_argument('--web_app', help = '需要部署的 web 应用的路径', required = True)
+    # <editor-fold desc="子命令: install_web_app">
+    install_web_app_parser = subcmds.add_parser('install_web_app',
+                                                help = '部署/更新指定的 web 应用')
+    install_web_app_parser.add_argument('--web_app',
+                                        action = PathArgAction,
+                                        help = '需要部署的 web 应用的路径',
+                                        required = True)
     install_web_app_parser.add_argument('--app_name',
                                         help = 'web 应用的名称, 以该名称在目标服务器上创建子目录进行部署. 如果不指定, 则以 --web_app 指定的目录的目录名为应用名称',
                                         default = '')
-    install_web_app_parser.add_argument(
-        '--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
-    install_web_app_parser.add_argument('--port', help = '目标主机ssh服务端口,默认:10022', type = int, default = 10022,
+    install_web_app_parser.add_argument('--host',
+                                        help = '目标主机IP,默认:127.0.0.1',
+                                        default = "127.0.0.1",
+                                        metavar = "127.0.0.1")
+    install_web_app_parser.add_argument('--port',
+                                        help = '目标主机ssh服务端口,默认:10022',
+                                        type = int,
+                                        default = 10022,
                                         metavar = '10022')
-    install_web_app_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa',
+    install_web_app_parser.add_argument('--ssh-key',
+                                        action = PathArgAction,
+                                        help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa',
                                         default = '~/.ssh/id_rsa',
                                         metavar = '~/.ssh/id_rsa')
+    # </editor-fold>
 
-    uninstall_web_app_parser = subcmds.add_parser('uninstall_web_app', help='从目标服务器上删除指定的 web 应用')
+    # <editor-fold desc="子命令: uninstall_web_app">
+    uninstall_web_app_parser = subcmds.add_parser('uninstall_web_app',
+                                                  help = '从目标服务器上删除指定的 web 应用')
     uninstall_web_app_parser.add_argument('--app_name',
-                                        help = '要删除的 web 应用的名称',
-                                        default = '')
-    uninstall_web_app_parser.add_argument(
-        '--host', help = '目标主机IP,默认:127.0.0.1', default = "127.0.0.1", metavar = "127.0.0.1")
-    uninstall_web_app_parser.add_argument('--port', help = '目标主机ssh服务端口,默认:10022', type = int, default = 10022,
-                                        metavar = '10022')
-    uninstall_web_app_parser.add_argument('--ssh-key', help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa',
-                                        default = '~/.ssh/id_rsa',
-                                        metavar = '~/.ssh/id_rsa')
+                                          help = '要删除的 web 应用的名称',
+                                          default = '')
+    uninstall_web_app_parser.add_argument('--host',
+                                          help = '目标主机IP,默认:127.0.0.1',
+                                          default = "127.0.0.1",
+                                          metavar = "127.0.0.1")
+    uninstall_web_app_parser.add_argument('--port',
+                                          help = '目标主机ssh服务端口,默认:10022',
+                                          type = int,
+                                          default = 10022,
+                                          metavar = '10022')
+    uninstall_web_app_parser.add_argument('--ssh-key',
+                                          action = PathArgAction,
+                                          help = '用于ssh登录的证书路径,默认:~/.ssh/id_rsa',
+                                          default = '~/.ssh/id_rsa',
+                                          metavar = '~/.ssh/id_rsa')
+    # </editor-fold>
 
     cmd_actions = {
         'app': deploy_app_zip,
@@ -440,7 +565,6 @@ def main():
     deploy_setup_script()
 
     action(args)
-
 
 if __name__ == '__main__':
     main()
